@@ -23,6 +23,8 @@ const exerciseSchema = z.object({
     .number()
     .min(0, { message: "Rest time cannot be negative" }),
   notes: z.string().optional(),
+  category: z.string().optional(),
+  save_to_library: z.boolean().optional(),
 });
 
 export type ExerciseFormValues = z.infer<typeof exerciseSchema>;
@@ -41,6 +43,8 @@ export default function ExerciseForm({
     reps: 10,
     rest_seconds: 60,
     notes: "",
+    category: "Other",
+    save_to_library: false,
   },
   onCancel,
 }: ExerciseFormProps) {
