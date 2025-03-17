@@ -297,7 +297,7 @@ export default function WorkoutBuilder() {
         .from("exercises")
         .select("*")
         .eq("workout_id", workoutId)
-        .order("order", { ascending: true });
+        .order("order_index", { ascending: true });
 
       if (exercisesError) throw exercisesError;
 
