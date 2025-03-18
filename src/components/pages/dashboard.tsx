@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../../supabase/auth";
 import { supabase } from "../../../supabase/supabase";
+import DashboardLayout from "../dashboard/layout/DashboardLayout";
 import {
   Card,
   CardContent,
@@ -13,57 +14,33 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/use-toast";
 import { Toaster } from "@/components/ui/toaster";
-import NotificationCenter from "@/components/dashboard/NotificationCenter";
-import ClientMetrics from "@/components/dashboard/ClientMetrics";
-import MessagingSystem from "@/components/dashboard/MessagingSystem";
-import DashboardLayout from "@/components/dashboard/layout/DashboardLayout";
 import {
   Users,
   Dumbbell,
   LineChart,
   Bell,
-  Plus,
-  Settings,
-  LogOut,
-  ChevronRight,
   Calendar,
   CheckCircle2,
-  XCircle,
-  Clock,
   BarChart3,
   ArrowUpRight,
   ArrowDownRight,
   Link as LinkIcon,
-  Copy,
-  Check,
-  MessageSquare,
   User,
+  TrendingUp,
+  Clock,
 } from "lucide-react";
+
+// Import the chart components
+import ClientActivityChart from "@/components/dashboard/ClientActivityChart";
+import ComplianceRateChart from "@/components/dashboard/ComplianceRateChart";
+import WorkoutDistributionChart from "@/components/dashboard/WorkoutDistributionChart";
+import ClientProgressChart from "@/components/dashboard/ClientProgressChart";
+import TopClientsTable from "@/components/dashboard/TopClientsTable";
+import AnalyticsCard from "@/components/dashboard/AnalyticsCard";
 
 // Types
 interface Client {
@@ -118,7 +95,7 @@ interface ProgressMetric {
 }
 
 const Dashboard = () => {
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -132,1523 +109,744 @@ const Dashboard = () => {
     portals: true,
     metrics: true,
   });
-  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
-  const [newClientData, setNewClientData] = useState({
-    name: "",
-    email: "",
-    phone: "",
+  const [dashboardData, setDashboardData] = useState({
+    totalClients: 0,
+    activeClients: 0,
+    totalWorkouts: 0,
+    completedWorkouts: 0,
+    complianceRate: 0,
+    upcomingWorkouts: 0,
+    trends: {
+      clients: 0,
+      workouts: 0,
+      completedWorkouts: 0,
+      complianceRate: 0,
+      avgCompletionTime: 0,
+    },
   });
-  const [newWorkoutData, setNewWorkoutData] = useState({
-    title: "",
-    description: "",
-    client_id: "",
-    due_date: new Date().toISOString().split("T")[0],
-  });
-  const [copiedPortalId, setCopiedPortalId] = useState<string | null>(null);
+  const [topClients, setTopClients] = useState([]);
 
   // Check if user is authenticated
   useEffect(() => {
     if (!user) {
       navigate("/login");
     } else {
-      fetchClients();
+      fetchDashboardData();
     }
   }, [user, navigate]);
 
-  // Fetch clients from database
-  const fetchClients = async () => {
+  // Fetch dashboard data
+  const fetchDashboardData = async () => {
     try {
-      setLoading((prev) => ({ ...prev, clients: true }));
-      const { data, error } = await supabase
+      setLoading({
+        clients: true,
+        workouts: true,
+        portals: true,
+        metrics: true,
+      });
+
+      // Get current date and 30 days ago for trend calculations
+      const today = new Date();
+      const thirtyDaysAgo = new Date(today);
+      thirtyDaysAgo.setDate(today.getDate() - 30);
+      const thirtyDaysAgoStr = thirtyDaysAgo.toISOString();
+
+      // Fetch clients
+      const { data: clients, error: clientsError } = await supabase
         .from("clients")
         .select("*")
         .eq("user_id", user?.id);
 
-      if (error) throw error;
-      setClients(data || []);
+      if (clientsError) throw clientsError;
+      setClients(clients || []);
 
-      // After fetching clients, fetch related data
-      if (data && data.length > 0) {
-        fetchWorkouts();
-        fetchClientPortals(data.map((client) => client.id));
-        fetchProgressMetrics(data.map((client) => client.id));
-      } else {
-        setLoading((prev) => ({
-          ...prev,
-          clients: false,
-          workouts: false,
-          portals: false,
-          metrics: false,
-        }));
-      }
-    } catch (error) {
-      console.error("Error fetching clients:", error);
-      toast({
-        title: "Error fetching clients",
-        description: "There was a problem loading your clients.",
-        variant: "destructive",
-      });
-      setLoading((prev) => ({ ...prev, clients: false }));
-    } finally {
-      // Ensure loading state is set to false even if there's an error
-      setLoading((prev) => ({ ...prev, clients: false }));
-    }
-  };
+      // Fetch clients created in last 30 days for trend
+      const { data: newClients, error: newClientsError } = await supabase
+        .from("clients")
+        .select("id")
+        .eq("user_id", user?.id)
+        .gte("created_at", thirtyDaysAgoStr);
 
-  // Fetch workouts from database
-  const fetchWorkouts = async () => {
-    try {
-      setLoading((prev) => ({ ...prev, workouts: true }));
-      const { data, error } = await supabase
+      if (newClientsError) throw newClientsError;
+
+      // Fetch workouts
+      const { data: workouts, error: workoutsError } = await supabase
         .from("workouts")
         .select("*, exercises(*)")
         .eq("user_id", user?.id);
 
-      if (error) throw error;
-      setWorkouts(data || []);
-    } catch (error) {
-      console.error("Error fetching workouts:", error);
-      toast({
-        title: "Error fetching workouts",
-        description: "There was a problem loading your workouts.",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading((prev) => ({ ...prev, workouts: false }));
-    }
-  };
+      if (workoutsError) throw workoutsError;
+      setWorkouts(workouts || []);
 
-  // Fetch client portals from database
-  const fetchClientPortals = async (clientIds: string[]) => {
-    if (!clientIds || !clientIds.length) {
-      setLoading((prev) => ({ ...prev, portals: false }));
-      return;
-    }
-
-    try {
-      setLoading((prev) => ({ ...prev, portals: true }));
-      const { data, error } = await supabase
-        .from("client_portals")
-        .select("*")
-        .in("client_id", clientIds);
-
-      if (error) throw error;
-      setClientPortals(data || []);
-    } catch (error) {
-      console.error("Error fetching client portals:", error);
-      toast({
-        title: "Error fetching client portals",
-        description: "There was a problem loading your client portals.",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading((prev) => ({ ...prev, portals: false }));
-    }
-  };
-
-  // Fetch progress metrics from database
-  const fetchProgressMetrics = async (clientIds: string[]) => {
-    if (!clientIds || !clientIds.length) {
-      setLoading((prev) => ({ ...prev, metrics: false }));
-      return;
-    }
-
-    try {
-      setLoading((prev) => ({ ...prev, metrics: true }));
-      const { data, error } = await supabase
-        .from("progress_metrics")
-        .select("*")
-        .in("client_id", clientIds);
-
-      if (error) throw error;
-      setProgressMetrics(data || []);
-    } catch (error) {
-      console.error("Error fetching progress metrics:", error);
-      toast({
-        title: "Error fetching progress metrics",
-        description: "There was a problem loading your progress metrics.",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading((prev) => ({ ...prev, metrics: false }));
-    }
-  };
-
-  // Add new client
-  const addNewClient = async () => {
-    try {
-      if (!newClientData.name || !newClientData.email) {
-        toast({
-          title: "Missing information",
-          description: "Please provide a name and email for the client.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from("clients")
-        .insert([
-          {
-            user_id: user?.id,
-            name: newClientData.name,
-            email: newClientData.email,
-            phone: newClientData.phone,
-            status: "active",
-          },
-        ])
-        .select();
-
-      if (error) throw error;
-
-      toast({
-        title: "Client added",
-        description: `${newClientData.name} has been added to your clients.`,
-      });
-
-      // Reset form and refresh clients
-      setNewClientData({ name: "", email: "", phone: "" });
-
-      // Update clients state directly with the new client to avoid loading state issues
-      if (data && data.length > 0) {
-        setClients((prevClients) => [...prevClients, data[0]]);
-        // Then fetch all related data
-        fetchWorkouts();
-        fetchClientPortals([...clients.map((client) => client.id), data[0].id]);
-        fetchProgressMetrics([
-          ...clients.map((client) => client.id),
-          data[0].id,
-        ]);
-      } else {
-        // Fallback to full refresh if data is not returned properly
-        fetchClients();
-      }
-    } catch (error) {
-      console.error("Error adding client:", error);
-      toast({
-        title: "Error adding client",
-        description: "There was a problem adding the client.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  // Add new workout
-  const addNewWorkout = async () => {
-    try {
-      if (!newWorkoutData.title || !newWorkoutData.client_id) {
-        toast({
-          title: "Missing information",
-          description:
-            "Please provide a title and select a client for the workout.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      console.log("Adding new workout:", {
-        user_id: user?.id,
-        client_id: newWorkoutData.client_id,
-        title: newWorkoutData.title,
-        description: newWorkoutData.description,
-        status: "assigned",
-        due_date: newWorkoutData.due_date,
-      });
-
-      const { data, error } = await supabase
+      // Fetch workouts created in last 30 days for trend
+      const { data: newWorkouts, error: newWorkoutsError } = await supabase
         .from("workouts")
-        .insert([
-          {
-            user_id: user?.id,
-            client_id: newWorkoutData.client_id,
-            title: newWorkoutData.title,
-            description: newWorkoutData.description,
-            status: "assigned",
-            due_date: newWorkoutData.due_date,
-          },
-        ])
-        .select();
+        .select("id, status, created_at, completed_at")
+        .eq("user_id", user?.id)
+        .gte("created_at", thirtyDaysAgoStr);
 
-      if (error) {
-        console.error("Database error adding workout:", error);
-        throw error;
+      if (newWorkoutsError) throw newWorkoutsError;
+
+      // Fetch client portals
+      if (clients && clients.length > 0) {
+        const { data: portals, error: portalsError } = await supabase
+          .from("client_portals")
+          .select("*")
+          .in(
+            "client_id",
+            clients.map((client) => client.id),
+          );
+
+        if (portalsError) throw portalsError;
+        setClientPortals(portals || []);
       }
 
-      console.log("Workout added successfully:", data);
+      // Fetch progress metrics
+      if (clients && clients.length > 0) {
+        const { data: metrics, error: metricsError } = await supabase
+          .from("progress_metrics")
+          .select("*")
+          .in(
+            "client_id",
+            clients.map((client) => client.id),
+          );
 
-      toast({
-        title: "Workout added",
-        description: `${newWorkoutData.title} has been assigned to the client.`,
-      });
-
-      // Reset form and refresh workouts
-      setNewWorkoutData({
-        title: "",
-        description: "",
-        client_id: "",
-        due_date: new Date().toISOString().split("T")[0],
-      });
-      fetchWorkouts();
-
-      // Create notification for client about new workout
-      try {
-        const { error: notificationError } = await supabase
-          .from("notifications")
-          .insert([
-            {
-              user_id: user?.id,
-              client_id: newWorkoutData.client_id,
-              title: "New Workout Assigned",
-              message: `A new workout "${newWorkoutData.title}" has been assigned to you.`,
-              type: "workout_assigned",
-              read: false,
-            },
-          ]);
-
-        if (notificationError) {
-          console.error("Error creating notification:", notificationError);
-        }
-      } catch (notifError) {
-        console.error("Error creating notification:", notifError);
-      }
-    } catch (error) {
-      console.error("Error adding workout:", error);
-      toast({
-        title: "Error adding workout",
-        description: "There was a problem adding the workout.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  // Generate client portal
-  const generateClientPortal = async (clientId: string) => {
-    try {
-      // Check if portal already exists
-      const existingPortal = clientPortals.find(
-        (portal) => portal.client_id === clientId,
-      );
-
-      if (existingPortal) {
-        toast({
-          title: "Portal already exists",
-          description: "This client already has an active portal.",
-        });
-        return existingPortal;
+        if (metricsError) throw metricsError;
+        setProgressMetrics(metrics || []);
       }
 
-      // Generate random access code
-      const accessCode = Math.random().toString(36).substring(2, 10);
+      // Calculate dashboard metrics
+      const activeClients = clients.filter(
+        (client) => client.status === "active",
+      ).length;
 
-      // Create portal URL
-      const portalUrl = `${window.location.origin}/client-portal/${clientId}?code=${accessCode}`;
+      const completedWorkouts = workouts.filter(
+        (workout) => workout.status === "completed",
+      ).length;
 
-      const { data, error } = await supabase
-        .from("client_portals")
-        .insert([
-          {
-            client_id: clientId,
-            access_code: accessCode,
-            url: portalUrl,
-          },
-        ])
-        .select();
+      // Calculate upcoming workouts (due in the next 7 days)
+      const nextWeek = new Date(today);
+      nextWeek.setDate(today.getDate() + 7);
 
-      if (error) throw error;
-
-      toast({
-        title: "Portal generated",
-        description: "Client portal has been created successfully.",
-      });
-
-      // Update client portals state directly
-      if (data && data.length > 0) {
-        setClientPortals((prevPortals) => [...prevPortals, data[0]]);
-      } else {
-        // Fallback to refresh if data is not returned properly
-        fetchClientPortals(clients.map((client) => client.id));
-      }
-
-      return data?.[0] || null;
-    } catch (error) {
-      console.error("Error generating client portal:", error);
-      toast({
-        title: "Error generating portal",
-        description: "There was a problem creating the client portal.",
-        variant: "destructive",
-      });
-      return null;
-    }
-  };
-
-  // Copy portal link to clipboard
-  const copyPortalLink = (portalUrl: string, portalId: string) => {
-    navigator.clipboard.writeText(portalUrl);
-    setCopiedPortalId(portalId);
-    toast({
-      title: "Link copied",
-      description: "Portal link has been copied to clipboard.",
-    });
-
-    // Reset copied status after 3 seconds
-    setTimeout(() => {
-      setCopiedPortalId(null);
-    }, 3000);
-  };
-
-  // Calculate client compliance rate
-  const getClientComplianceRate = (clientId: string) => {
-    const clientWorkouts = workouts.filter(
-      (workout) => workout.client_id === clientId,
-    );
-    if (clientWorkouts.length === 0) return 0;
-
-    const completedWorkouts = clientWorkouts.filter(
-      (workout) => workout.status === "completed",
-    );
-    return Math.round((completedWorkouts.length / clientWorkouts.length) * 100);
-  };
-
-  // Get client's upcoming workouts
-  const getUpcomingWorkouts = (clientId: string) => {
-    // Fix date comparison by using start of day for both dates
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    return workouts
-      .filter((workout) => {
-        const isClientWorkout = workout.client_id === clientId;
-        const isNotCompleted = workout.status !== "completed";
-
-        // Parse the due date and set to start of day for fair comparison
+      const upcomingWorkouts = workouts.filter((workout) => {
         const dueDate = new Date(workout.due_date);
-        dueDate.setHours(0, 0, 0, 0);
+        return (
+          workout.status !== "completed" &&
+          dueDate >= today &&
+          dueDate <= nextWeek
+        );
+      }).length;
 
-        const isDueInFuture = dueDate >= today;
+      const complianceRate =
+        workouts.length > 0
+          ? Math.round((completedWorkouts / workouts.length) * 100)
+          : 0;
 
-        return isClientWorkout && isNotCompleted && isDueInFuture;
-      })
-      .sort(
-        (a, b) =>
-          new Date(a.due_date).getTime() - new Date(b.due_date).getTime(),
-      );
+      // Calculate trends (percentage change in last 30 days)
+      // Get data from 60 days ago for comparison
+      const sixtyDaysAgo = new Date(today);
+      sixtyDaysAgo.setDate(today.getDate() - 60);
+      const sixtyDaysAgoStr = sixtyDaysAgo.toISOString();
+
+      // Fetch clients created between 30-60 days ago for comparison
+      const { data: previousPeriodClients, error: prevClientsError } =
+        await supabase
+          .from("clients")
+          .select("id")
+          .eq("user_id", user?.id)
+          .gte("created_at", sixtyDaysAgoStr)
+          .lt("created_at", thirtyDaysAgoStr);
+
+      if (prevClientsError)
+        console.error(
+          "Error fetching previous period clients:",
+          prevClientsError,
+        );
+
+      // Fetch workouts created between 30-60 days ago for comparison
+      const { data: previousPeriodWorkouts, error: prevWorkoutsError } =
+        await supabase
+          .from("workouts")
+          .select("id, status, created_at, completed_at")
+          .eq("user_id", user?.id)
+          .gte("created_at", sixtyDaysAgoStr)
+          .lt("created_at", thirtyDaysAgoStr);
+
+      if (prevWorkoutsError)
+        console.error(
+          "Error fetching previous period workouts:",
+          prevWorkoutsError,
+        );
+
+      // For clients: compare new clients in last 30 days with previous 30 days
+      const clientTrend =
+        previousPeriodClients && previousPeriodClients.length > 0
+          ? Math.round(
+              ((newClients?.length - previousPeriodClients.length) /
+                previousPeriodClients.length) *
+                100,
+            )
+          : null; // null indicates no previous data to compare
+
+      // For workouts: compare new workouts in last 30 days with previous 30 days
+      const workoutTrend =
+        previousPeriodWorkouts && previousPeriodWorkouts.length > 0
+          ? Math.round(
+              ((newWorkouts?.length - previousPeriodWorkouts.length) /
+                previousPeriodWorkouts.length) *
+                100,
+            )
+          : null;
+
+      // For completed workouts: compare completed workouts in last 30 days with previous 30 days
+      const newCompletedWorkouts =
+        newWorkouts?.filter((w) => w.status === "completed").length || 0;
+      const prevCompletedWorkouts =
+        previousPeriodWorkouts?.filter((w) => w.status === "completed")
+          .length || 0;
+
+      const completedWorkoutTrend =
+        prevCompletedWorkouts > 0
+          ? Math.round(
+              ((newCompletedWorkouts - prevCompletedWorkouts) /
+                prevCompletedWorkouts) *
+                100,
+            )
+          : null;
+
+      // For compliance rate: compare current period compliance rate with previous period
+      const newWorkoutsComplianceRate =
+        newWorkouts?.length > 0
+          ? Math.round((newCompletedWorkouts / newWorkouts.length) * 100)
+          : 0;
+
+      const prevWorkoutsComplianceRate =
+        previousPeriodWorkouts?.length > 0
+          ? Math.round(
+              (prevCompletedWorkouts / previousPeriodWorkouts.length) * 100,
+            )
+          : 0;
+
+      const complianceRateTrend =
+        prevWorkoutsComplianceRate > 0
+          ? newWorkoutsComplianceRate - prevWorkoutsComplianceRate
+          : null;
+
+      // Calculate average completion time (in days)
+      const completionTimes = workouts
+        .filter(
+          (workout) => workout.status === "completed" && workout.completed_at,
+        )
+        .map((workout) => {
+          const createdDate = new Date(workout.created_at);
+          const completedDate = new Date(workout.completed_at);
+          return Math.round(
+            (completedDate.getTime() - createdDate.getTime()) /
+              (1000 * 60 * 60 * 24),
+          );
+        });
+
+      const avgCompletionTime =
+        completionTimes.length > 0
+          ? (
+              completionTimes.reduce((sum, time) => sum + time, 0) /
+              completionTimes.length
+            ).toFixed(1)
+          : 0;
+
+      // Calculate trend for completion time
+      const recentCompletionTimes = workouts
+        .filter(
+          (workout) =>
+            workout.status === "completed" &&
+            workout.completed_at &&
+            new Date(workout.created_at) >= thirtyDaysAgo,
+        )
+        .map((workout) => {
+          const createdDate = new Date(workout.created_at);
+          const completedDate = new Date(workout.completed_at);
+          return Math.round(
+            (completedDate.getTime() - createdDate.getTime()) /
+              (1000 * 60 * 60 * 24),
+          );
+        });
+
+      // Calculate previous period completion times
+      const previousPeriodCompletionTimes = workouts
+        .filter(
+          (workout) =>
+            workout.status === "completed" &&
+            workout.completed_at &&
+            new Date(workout.created_at) >= sixtyDaysAgo &&
+            new Date(workout.created_at) < thirtyDaysAgo,
+        )
+        .map((workout) => {
+          const createdDate = new Date(workout.created_at);
+          const completedDate = new Date(workout.completed_at);
+          return Math.round(
+            (completedDate.getTime() - createdDate.getTime()) /
+              (1000 * 60 * 60 * 24),
+          );
+        });
+
+      const recentAvgCompletionTime =
+        recentCompletionTimes.length > 0
+          ? recentCompletionTimes.reduce((sum, time) => sum + time, 0) /
+            recentCompletionTimes.length
+          : 0;
+
+      const previousAvgCompletionTime =
+        previousPeriodCompletionTimes.length > 0
+          ? previousPeriodCompletionTimes.reduce((sum, time) => sum + time, 0) /
+            previousPeriodCompletionTimes.length
+          : 0;
+
+      const avgCompletionTimeTrend =
+        previousAvgCompletionTime > 0
+          ? Math.round(
+              ((recentAvgCompletionTime - previousAvgCompletionTime) /
+                previousAvgCompletionTime) *
+                100,
+            )
+          : null;
+
+      // Set dashboard data
+      setDashboardData({
+        totalClients: clients.length,
+        activeClients,
+        totalWorkouts: workouts.length,
+        completedWorkouts,
+        complianceRate,
+        upcomingWorkouts,
+        trends: {
+          clients: clientTrend,
+          workouts: workoutTrend,
+          completedWorkouts: completedWorkoutTrend,
+          complianceRate: complianceRateTrend,
+          avgCompletionTime: avgCompletionTimeTrend,
+        },
+      });
+
+      // Calculate top performing clients
+      const clientWorkouts = {};
+      workouts.forEach((workout) => {
+        if (!clientWorkouts[workout.client_id]) {
+          clientWorkouts[workout.client_id] = {
+            total: 0,
+            completed: 0,
+          };
+        }
+        clientWorkouts[workout.client_id].total += 1;
+        if (workout.status === "completed") {
+          clientWorkouts[workout.client_id].completed += 1;
+        }
+      });
+
+      const topPerformingClients = clients
+        .map((client) => {
+          const workoutStats = clientWorkouts[client.id] || {
+            total: 0,
+            completed: 0,
+          };
+          const complianceRate =
+            workoutStats.total > 0
+              ? Math.round((workoutStats.completed / workoutStats.total) * 100)
+              : 0;
+          return {
+            id: client.id,
+            name: client.name,
+            email: client.email,
+            complianceRate,
+            workoutsCompleted: workoutStats.completed,
+            status: client.status,
+          };
+        })
+        .sort((a, b) => b.complianceRate - a.complianceRate)
+        .slice(0, 5);
+
+      setTopClients(topPerformingClients);
+    } catch (error) {
+      console.error("Error fetching dashboard data:", error);
+      toast({
+        title: "Error loading dashboard",
+        description: "There was a problem loading your dashboard data.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading({
+        clients: false,
+        workouts: false,
+        portals: false,
+        metrics: false,
+      });
+    }
   };
 
-  // Get client's progress metrics
-  const getClientProgressMetrics = (clientId: string, metricType: string) => {
-    return progressMetrics
-      .filter(
-        (metric) =>
-          metric.client_id === clientId && metric.metric_type === metricType,
-      )
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  };
+  // Generate dynamic chart data from database results
+  const [chartData, setChartData] = useState({
+    clientActivity: [],
+    complianceRate: [],
+    clientProgress: [],
+    workoutDistribution: [],
+  });
 
-  // Format date for display
-  const formatDate = (dateString: string) => {
-    const options: Intl.DateTimeFormatOptions = {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
+  // Process data for charts
+  useEffect(() => {
+    if (loading.clients || loading.workouts || loading.metrics) return;
+
+    // Process client activity data (workouts by month)
+    const processClientActivityData = () => {
+      const monthNames = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+      ];
+      const currentYear = new Date().getFullYear();
+      const activityByMonth = {};
+
+      // Initialize months
+      monthNames.forEach((month, index) => {
+        activityByMonth[month] = {
+          date: month,
+          workoutsAssigned: 0,
+          workoutsCompleted: 0,
+        };
+      });
+
+      // Count workouts by month
+      workouts.forEach((workout) => {
+        const workoutDate = new Date(workout.created_at);
+        const workoutMonth = monthNames[workoutDate.getMonth()];
+
+        // Only count workouts from current year
+        if (workoutDate.getFullYear() === currentYear) {
+          activityByMonth[workoutMonth].workoutsAssigned++;
+
+          if (workout.status === "completed") {
+            activityByMonth[workoutMonth].workoutsCompleted++;
+          }
+        }
+      });
+
+      // Convert to array and get last 7 months
+      const currentMonthIndex = new Date().getMonth();
+      const last7Months = [];
+
+      for (let i = 6; i >= 0; i--) {
+        const monthIndex = (currentMonthIndex - i + 12) % 12; // Handle wrapping around to previous year
+        last7Months.push(activityByMonth[monthNames[monthIndex]]);
+      }
+
+      return last7Months.reverse(); // Most recent month last
     };
-    return new Date(dateString).toLocaleDateString(undefined, options);
-  };
+
+    // Process compliance rate data
+    const processComplianceRateData = () => [
+      {
+        name: "Completed",
+        value: dashboardData.complianceRate,
+        color: "#4ade80",
+      },
+      {
+        name: "Missed",
+        value: 100 - dashboardData.complianceRate,
+        color: "#f87171",
+      },
+    ];
+
+    // Process client progress data from metrics
+    const processClientProgressData = () => {
+      const monthNames = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+      ];
+      const progressByMonth = {};
+
+      // Initialize with empty data for last 7 months
+      const currentDate = new Date();
+      const currentMonthIndex = currentDate.getMonth();
+
+      for (let i = 6; i >= 0; i--) {
+        const monthIndex = (currentMonthIndex - i + 12) % 12;
+        const monthName = monthNames[monthIndex];
+
+        progressByMonth[monthName] = {
+          month: monthName,
+          weight: 0,
+          strength: 0,
+          endurance: 0,
+        };
+      }
+
+      // Process metrics data
+      if (progressMetrics && progressMetrics.length > 0) {
+        progressMetrics.forEach((metric) => {
+          const metricDate = new Date(metric.date);
+          const monthName = monthNames[metricDate.getMonth()];
+
+          // Only include metrics from current year and if month exists in our data
+          if (
+            metricDate.getFullYear() === currentDate.getFullYear() &&
+            progressByMonth[monthName]
+          ) {
+            // Update the appropriate metric type
+            if (metric.metric_type === "weight" && progressByMonth[monthName]) {
+              progressByMonth[monthName].weight = metric.value;
+            } else if (
+              metric.metric_type === "strength" &&
+              progressByMonth[monthName]
+            ) {
+              progressByMonth[monthName].strength = metric.value;
+            } else if (
+              metric.metric_type === "endurance" &&
+              progressByMonth[monthName]
+            ) {
+              progressByMonth[monthName].endurance = metric.value;
+            }
+          }
+        });
+      }
+
+      // Convert to array and sort by month
+      return Object.values(progressByMonth);
+    };
+
+    // Process workout distribution data
+    const processWorkoutDistributionData = () => {
+      // Get workouts from the last 4 weeks
+      const now = new Date();
+      const fourWeeksAgo = new Date(now);
+      fourWeeksAgo.setDate(now.getDate() - 28);
+
+      const recentWorkouts = workouts.filter((workout) => {
+        const workoutDate = new Date(workout.created_at);
+        return workoutDate >= fourWeeksAgo;
+      });
+
+      // Group workouts by week
+      const weeklyData = [
+        { name: "Week 1", strength: 0, cardio: 0, flexibility: 0 },
+        { name: "Week 2", strength: 0, cardio: 0, flexibility: 0 },
+        { name: "Week 3", strength: 0, cardio: 0, flexibility: 0 },
+        { name: "Week 4", strength: 0, cardio: 0, flexibility: 0 },
+      ];
+
+      recentWorkouts.forEach((workout) => {
+        const workoutDate = new Date(workout.created_at);
+        const daysAgo = Math.floor(
+          (now.getTime() - workoutDate.getTime()) / (1000 * 60 * 60 * 24),
+        );
+        const weekIndex = Math.min(Math.floor(daysAgo / 7), 3); // 0-3 for weeks 1-4
+
+        // Determine workout type based on exercises
+        if (workout.exercises && workout.exercises.length > 0) {
+          // Simple classification based on exercise names
+          // In a real app, you'd have more sophisticated classification
+          const exerciseNames = workout.exercises.map((ex) =>
+            ex.name.toLowerCase(),
+          );
+
+          if (
+            exerciseNames.some(
+              (name) =>
+                name.includes("bench") ||
+                name.includes("squat") ||
+                name.includes("deadlift") ||
+                name.includes("press"),
+            )
+          ) {
+            weeklyData[weekIndex].strength++;
+          } else if (
+            exerciseNames.some(
+              (name) =>
+                name.includes("run") ||
+                name.includes("sprint") ||
+                name.includes("jog") ||
+                name.includes("cardio"),
+            )
+          ) {
+            weeklyData[weekIndex].cardio++;
+          } else if (
+            exerciseNames.some(
+              (name) =>
+                name.includes("stretch") ||
+                name.includes("yoga") ||
+                name.includes("mobility"),
+            )
+          ) {
+            weeklyData[weekIndex].flexibility++;
+          } else {
+            // Default to strength if we can't classify
+            weeklyData[weekIndex].strength++;
+          }
+        }
+      });
+
+      return weeklyData;
+    };
+
+    // Update all chart data
+    setChartData({
+      clientActivity: processClientActivityData(),
+      complianceRate: processComplianceRateData(),
+      clientProgress: processClientProgressData(),
+      workoutDistribution: processWorkoutDistributionData(),
+    });
+  }, [
+    workouts,
+    clients,
+    progressMetrics,
+    loading,
+    dashboardData.complianceRate,
+  ]);
 
   return (
     <DashboardLayout>
-      <div>
-        <div className="flex flex-col space-y-6">
-          {/* Dashboard Header */}
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-              <p className="text-muted-foreground">
-                Manage your clients, workouts, and track progress.
-              </p>
-            </div>
-            <div className="flex space-x-3">
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button className="bg-blue-600 hover:bg-blue-700">
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Client
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Add New Client</DialogTitle>
-                    <DialogDescription>
-                      Enter the details of your new client below.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="grid gap-4 py-4">
-                    <div className="grid gap-2">
-                      <Label htmlFor="name">Name</Label>
-                      <Input
-                        id="name"
-                        value={newClientData.name}
-                        onChange={(e) =>
-                          setNewClientData({
-                            ...newClientData,
-                            name: e.target.value,
-                          })
-                        }
-                        placeholder="John Doe"
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="email">Email</Label>
-                      <Input
-                        id="email"
-                        type="email"
-                        value={newClientData.email}
-                        onChange={(e) =>
-                          setNewClientData({
-                            ...newClientData,
-                            email: e.target.value,
-                          })
-                        }
-                        placeholder="john@example.com"
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="phone">Phone (optional)</Label>
-                      <Input
-                        id="phone"
-                        value={newClientData.phone}
-                        onChange={(e) =>
-                          setNewClientData({
-                            ...newClientData,
-                            phone: e.target.value,
-                          })
-                        }
-                        placeholder="+1 (555) 123-4567"
-                      />
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button onClick={addNewClient}>Add Client</Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button className="bg-blue-600 hover:bg-blue-700">
-                    <Plus className="mr-2 h-4 w-4" />
-                    Create Workout
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Create New Workout</DialogTitle>
-                    <DialogDescription>
-                      Create a workout and assign it to a client.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="grid gap-4 py-4">
-                    <div className="grid gap-2">
-                      <Label htmlFor="title">Workout Title</Label>
-                      <Input
-                        id="title"
-                        value={newWorkoutData.title}
-                        onChange={(e) =>
-                          setNewWorkoutData({
-                            ...newWorkoutData,
-                            title: e.target.value,
-                          })
-                        }
-                        placeholder="Full Body Strength"
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="description">
-                        Description (optional)
-                      </Label>
-                      <Textarea
-                        id="description"
-                        value={newWorkoutData.description}
-                        onChange={(e) =>
-                          setNewWorkoutData({
-                            ...newWorkoutData,
-                            description: e.target.value,
-                          })
-                        }
-                        placeholder="Focus on compound movements with moderate weight."
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="client">Assign to Client</Label>
-                      <select
-                        id="client"
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                        value={newWorkoutData.client_id}
-                        onChange={(e) =>
-                          setNewWorkoutData({
-                            ...newWorkoutData,
-                            client_id: e.target.value,
-                          })
-                        }
-                      >
-                        <option value="">Select a client</option>
-                        {clients.map((client) => (
-                          <option key={client.id} value={client.id}>
-                            {client.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="due_date">Due Date</Label>
-                      <Input
-                        id="due_date"
-                        type="date"
-                        value={newWorkoutData.due_date}
-                        onChange={(e) =>
-                          setNewWorkoutData({
-                            ...newWorkoutData,
-                            due_date: e.target.value,
-                          })
-                        }
-                      />
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button onClick={addNewWorkout}>Create Workout</Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </div>
-
-          {/* Dashboard Overview Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Total Clients
-                </CardTitle>
-                <Users className="h-4 w-4 text-blue-600" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{clients.length}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {clients.filter((c) => c.status === "active").length} active
-                  clients
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Total Workouts
-                </CardTitle>
-                <Dumbbell className="h-4 w-4 text-blue-600" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{workouts.length}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {workouts.filter((w) => w.status === "completed").length}{" "}
-                  completed
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Average Compliance
-                </CardTitle>
-                <BarChart3 className="h-4 w-4 text-blue-600" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {clients.length > 0
-                    ? Math.round(
-                        clients.reduce(
-                          (acc, client) =>
-                            acc + getClientComplianceRate(client.id),
-                          0,
-                        ) / clients.length,
-                      )
-                    : 0}
-                  %
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Across all clients
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Active Portals
-                </CardTitle>
-                <LinkIcon className="h-4 w-4 text-blue-600" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{clientPortals.length}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {clients.length > 0
-                    ? Math.round((clientPortals.length / clients.length) * 100)
-                    : 0}
-                  % of clients
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Main Dashboard Content */}
-          <Tabs defaultValue="clients" className="w-full">
-            <TabsList className="grid w-full md:w-auto grid-cols-4 md:grid-cols-4">
-              <TabsTrigger value="clients" className="flex items-center">
-                <Users className="mr-2 h-4 w-4" />
-                <span className="hidden md:inline">Clients</span>
-              </TabsTrigger>
-              <TabsTrigger value="workouts" className="flex items-center">
-                <Dumbbell className="mr-2 h-4 w-4" />
-                <span className="hidden md:inline">Workouts</span>
-              </TabsTrigger>
-              <TabsTrigger value="progress" className="flex items-center">
-                <LineChart className="mr-2 h-4 w-4" />
-                <span className="hidden md:inline">Progress</span>
-              </TabsTrigger>
-              <TabsTrigger value="portals" className="flex items-center">
-                <LinkIcon className="mr-2 h-4 w-4" />
-                <span className="hidden md:inline">Portals</span>
-              </TabsTrigger>
-            </TabsList>
-
-            {/* Clients Tab */}
-            <TabsContent value="clients" className="space-y-4">
-              <div className="rounded-md border border-border">
-                <div className="p-4 bg-background rounded-md">
-                  <div className="font-medium">Your Clients</div>
-                  <div className="text-sm text-muted-foreground">
-                    Manage and view details of all your clients.
-                  </div>
-                </div>
-                <div className="relative w-full overflow-auto bg-background">
-                  <table className="w-full caption-bottom text-sm">
-                    <thead className="[&_tr]:border-b">
-                      <tr className="border-b border-border transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
-                        <th className="h-12 px-4 text-left align-middle font-medium">
-                          Name
-                        </th>
-                        <th className="h-12 px-4 text-left align-middle font-medium">
-                          Email
-                        </th>
-                        <th className="h-12 px-4 text-left align-middle font-medium">
-                          Status
-                        </th>
-                        <th className="h-12 px-4 text-left align-middle font-medium">
-                          Compliance
-                        </th>
-                        <th className="h-12 px-4 text-left align-middle font-medium">
-                          Actions
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="[&_tr:last-child]:border-0 bg-background">
-                      {loading.clients ? (
-                        <tr>
-                          <td colSpan={5} className="p-4 text-center">
-                            Loading clients...
-                          </td>
-                        </tr>
-                      ) : clients.length === 0 ? (
-                        <tr>
-                          <td colSpan={5} className="p-4 text-center">
-                            No clients found. Add your first client to get
-                            started.
-                          </td>
-                        </tr>
-                      ) : (
-                        clients.map((client) => (
-                          <tr
-                            key={client.id}
-                            className="border-b border-border transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted cursor-pointer"
-                            onClick={() => setSelectedClient(client)}
-                            data-client-id={client.id}
-                          >
-                            <td className="p-4 align-middle">
-                              <div className="flex items-center space-x-3">
-                                <Avatar>
-                                  <AvatarImage
-                                    src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${client.email}`}
-                                  />
-                                  <AvatarFallback>
-                                    <User className="h-4 w-4" />
-                                  </AvatarFallback>
-                                </Avatar>
-                                <div>{client.name}</div>
-                              </div>
-                            </td>
-                            <td className="p-4 align-middle">{client.email}</td>
-                            <td className="p-4 align-middle">
-                              <Badge
-                                variant={
-                                  client.status === "active"
-                                    ? "default"
-                                    : "secondary"
-                                }
-                              >
-                                {client.status === "active"
-                                  ? "Active"
-                                  : "Inactive"}
-                              </Badge>
-                            </td>
-                            <td className="p-4 align-middle">
-                              <div className="flex items-center space-x-2">
-                                <Progress
-                                  value={getClientComplianceRate(client.id)}
-                                  className="h-2 w-[60px]"
-                                />
-                                <span>
-                                  {getClientComplianceRate(client.id)}%
-                                </span>
-                              </div>
-                            </td>
-                            <td className="p-4 align-middle">
-                              <div className="flex space-x-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8 w-8 p-0"
-                                >
-                                  <span className="sr-only">View details</span>
-                                  <ChevronRight className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Selected Client Details */}
-              {selectedClient && (
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-4">
-                        <Avatar className="h-10 w-10">
-                          <AvatarImage
-                            src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${selectedClient.email}`}
-                          />
-                          <AvatarFallback>
-                            <User className="h-4 w-4" />
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <CardTitle>{selectedClient.name}</CardTitle>
-                          <CardDescription>
-                            {selectedClient.email}
-                          </CardDescription>
-                        </div>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        onClick={() => setSelectedClient(null)}
-                      >
-                        Close
-                      </Button>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <Tabs defaultValue="overview">
-                      <TabsList>
-                        <TabsTrigger value="overview">Overview</TabsTrigger>
-                        <TabsTrigger value="workouts">Workouts</TabsTrigger>
-                        <TabsTrigger value="progress">Progress</TabsTrigger>
-                        <TabsTrigger value="messaging">Messaging</TabsTrigger>
-                      </TabsList>
-                      <TabsContent value="overview" className="space-y-4 pt-4">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <Card>
-                            <CardHeader className="pb-2">
-                              <CardTitle className="text-sm">
-                                Compliance Rate
-                              </CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              <div className="text-2xl font-bold">
-                                {getClientComplianceRate(selectedClient.id)}%
-                              </div>
-                              <Progress
-                                value={getClientComplianceRate(
-                                  selectedClient.id,
-                                )}
-                                className="h-2 mt-2"
-                              />
-                            </CardContent>
-                          </Card>
-                          <Card>
-                            <CardHeader className="pb-2">
-                              <CardTitle className="text-sm">
-                                Assigned Workouts
-                              </CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              <div className="text-2xl font-bold">
-                                {
-                                  workouts.filter(
-                                    (w) => w.client_id === selectedClient.id,
-                                  ).length
-                                }
-                              </div>
-                              <div className="text-xs text-muted-foreground mt-1">
-                                {
-                                  workouts.filter(
-                                    (w) =>
-                                      w.client_id === selectedClient.id &&
-                                      w.status === "completed",
-                                  ).length
-                                }{" "}
-                                completed
-                              </div>
-                            </CardContent>
-                          </Card>
-                          <Card>
-                            <CardHeader className="pb-2">
-                              <CardTitle className="text-sm">
-                                Client Since
-                              </CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              <div className="text-2xl font-bold">
-                                {formatDate(selectedClient.created_at)}
-                              </div>
-                            </CardContent>
-                          </Card>
-                        </div>
-
-                        <div className="space-y-2">
-                          <h3 className="text-lg font-medium">
-                            Upcoming Workouts
-                          </h3>
-                          {getUpcomingWorkouts(selectedClient.id).length ===
-                          0 ? (
-                            <p className="text-sm text-muted-foreground">
-                              No upcoming workouts scheduled.
-                            </p>
-                          ) : (
-                            <div className="space-y-2">
-                              {getUpcomingWorkouts(selectedClient.id)
-                                .slice(0, 3)
-                                .map((workout) => (
-                                  <div
-                                    key={workout.id}
-                                    className="flex items-center justify-between p-3 border border-border rounded-md bg-card text-card-foreground"
-                                  >
-                                    <div>
-                                      <div className="font-medium">
-                                        {workout.title}
-                                      </div>
-                                      <div className="text-sm text-muted-foreground">
-                                        Due: {formatDate(workout.due_date)}
-                                      </div>
-                                    </div>
-                                    <Badge
-                                      variant={
-                                        workout.status === "assigned"
-                                          ? "outline"
-                                          : "secondary"
-                                      }
-                                    >
-                                      {workout.status === "assigned"
-                                        ? "Assigned"
-                                        : "In Progress"}
-                                    </Badge>
-                                  </div>
-                                ))}
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="pt-2">
-                          <h3 className="text-lg font-medium mb-2">
-                            Client Portal
-                          </h3>
-                          {clientPortals.find(
-                            (portal) => portal.client_id === selectedClient.id,
-                          ) ? (
-                            <div className="flex items-center space-x-2">
-                              <Input
-                                readOnly
-                                value={
-                                  clientPortals.find(
-                                    (portal) =>
-                                      portal.client_id === selectedClient.id,
-                                  )?.url || ""
-                                }
-                              />
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                onClick={() => {
-                                  const portal = clientPortals.find(
-                                    (p) => p.client_id === selectedClient.id,
-                                  );
-                                  if (portal)
-                                    copyPortalLink(portal.url, portal.id);
-                                }}
-                              >
-                                {copiedPortalId ===
-                                clientPortals.find(
-                                  (p) => p.client_id === selectedClient.id,
-                                )?.id ? (
-                                  <Check className="h-4 w-4" />
-                                ) : (
-                                  <Copy className="h-4 w-4" />
-                                )}
-                              </Button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center space-x-2">
-                              <p className="text-sm text-muted-foreground">
-                                No portal generated yet.
-                              </p>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() =>
-                                  generateClientPortal(selectedClient.id)
-                                }
-                              >
-                                Generate Portal
-                              </Button>
-                            </div>
-                          )}
-                        </div>
-                      </TabsContent>
-
-                      <TabsContent
-                        value="workouts"
-                        className="space-y-4 pt-4"
-                        id="client-workouts-tab"
-                      >
-                        {workouts.filter(
-                          (w) => w.client_id === selectedClient.id,
-                        ).length === 0 ? (
-                          <div className="text-center py-8">
-                            <Dumbbell className="h-12 w-12 text-muted mx-auto mb-4" />
-                            <h3 className="text-lg font-medium">
-                              No workouts assigned
-                            </h3>
-                            <p className="text-sm text-muted-foreground mb-4">
-                              Create your first workout for this client.
-                            </p>
-                            <Dialog>
-                              <DialogTrigger asChild>
-                                <Button>
-                                  <Plus className="mr-2 h-4 w-4" />
-                                  Create Workout
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent>
-                                <DialogHeader>
-                                  <DialogTitle>Create New Workout</DialogTitle>
-                                  <DialogDescription>
-                                    Create a workout for {selectedClient.name}.
-                                  </DialogDescription>
-                                </DialogHeader>
-                                <div className="grid gap-4 py-4">
-                                  <div className="grid gap-2">
-                                    <Label htmlFor="title">Workout Title</Label>
-                                    <Input
-                                      id="title"
-                                      value={newWorkoutData.title}
-                                      onChange={(e) =>
-                                        setNewWorkoutData({
-                                          ...newWorkoutData,
-                                          title: e.target.value,
-                                        })
-                                      }
-                                      placeholder="Full Body Strength"
-                                    />
-                                  </div>
-                                  <div className="grid gap-2">
-                                    <Label htmlFor="description">
-                                      Description (optional)
-                                    </Label>
-                                    <Textarea
-                                      id="description"
-                                      value={newWorkoutData.description}
-                                      onChange={(e) =>
-                                        setNewWorkoutData({
-                                          ...newWorkoutData,
-                                          description: e.target.value,
-                                        })
-                                      }
-                                      placeholder="Focus on compound movements with moderate weight."
-                                    />
-                                  </div>
-                                  <div className="grid gap-2">
-                                    <Label htmlFor="due_date">Due Date</Label>
-                                    <Input
-                                      id="due_date"
-                                      type="date"
-                                      value={newWorkoutData.due_date}
-                                      onChange={(e) =>
-                                        setNewWorkoutData({
-                                          ...newWorkoutData,
-                                          due_date: e.target.value,
-                                        })
-                                      }
-                                    />
-                                  </div>
-                                </div>
-                                <DialogFooter>
-                                  <Button
-                                    onClick={() => {
-                                      setNewWorkoutData({
-                                        ...newWorkoutData,
-                                        client_id: selectedClient.id,
-                                      });
-                                      addNewWorkout();
-                                    }}
-                                  >
-                                    Create Workout
-                                  </Button>
-                                </DialogFooter>
-                              </DialogContent>
-                            </Dialog>
-                          </div>
-                        ) : (
-                          <div className="space-y-4">
-                            {workouts
-                              .filter((w) => w.client_id === selectedClient.id)
-                              .sort(
-                                (a, b) =>
-                                  new Date(b.created_at).getTime() -
-                                  new Date(a.created_at).getTime(),
-                              )
-                              .map((workout) => (
-                                <Card
-                                  key={workout.id}
-                                  id={`workout-${workout.id}`}
-                                  className={
-                                    workout.status === "completed" &&
-                                    workout.feedback
-                                      ? "ring-2 ring-blue-200"
-                                      : ""
-                                  }
-                                >
-                                  <CardHeader className="pb-2">
-                                    <div className="flex items-center justify-between">
-                                      <CardTitle>{workout.title}</CardTitle>
-                                      <Badge
-                                        variant={
-                                          workout.status === "completed"
-                                            ? "default"
-                                            : "outline"
-                                        }
-                                      >
-                                        {workout.status === "completed"
-                                          ? "Completed"
-                                          : workout.status === "in_progress"
-                                            ? "In Progress"
-                                            : "Assigned"}
-                                      </Badge>
-                                    </div>
-                                    <CardDescription>
-                                      Created on{" "}
-                                      {formatDate(workout.created_at)} • Due{" "}
-                                      {formatDate(workout.due_date)}
-                                    </CardDescription>
-                                  </CardHeader>
-                                  <CardContent>
-                                    {workout.description && (
-                                      <p className="text-sm text-muted-foreground mb-4">
-                                        {workout.description}
-                                      </p>
-                                    )}
-
-                                    {workout.feedback && (
-                                      <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-950/30 rounded-md border border-blue-100 dark:border-blue-800">
-                                        <h4 className="text-sm font-medium mb-1 flex items-center">
-                                          <CheckCircle2 className="h-4 w-4 text-green-500 mr-1" />
-                                          Client Feedback:
-                                        </h4>
-                                        <p className="text-sm text-foreground">
-                                          {workout.feedback}
-                                        </p>
-                                      </div>
-                                    )}
-
-                                    {workout.exercises &&
-                                    workout.exercises.length > 0 ? (
-                                      <div className="space-y-2">
-                                        <h4 className="text-sm font-medium">
-                                          Exercises
-                                        </h4>
-                                        <div className="space-y-2">
-                                          {workout.exercises.map(
-                                            (exercise, index) => (
-                                              <div
-                                                key={exercise.id}
-                                                className="p-2 border border-border rounded-md bg-card text-card-foreground"
-                                              >
-                                                <div className="flex items-center justify-between">
-                                                  <div className="font-medium">
-                                                    {exercise.name}
-                                                  </div>
-                                                  <div className="text-sm text-muted-foreground">
-                                                    {exercise.sets} sets ×{" "}
-                                                    {exercise.reps} reps
-                                                  </div>
-                                                </div>
-                                                {exercise.notes && (
-                                                  <p className="text-xs text-muted-foreground mt-1">
-                                                    {exercise.notes}
-                                                  </p>
-                                                )}
-                                              </div>
-                                            ),
-                                          )}
-                                        </div>
-                                      </div>
-                                    ) : (
-                                      <div className="text-sm text-muted-foreground">
-                                        No exercises added to this workout yet.
-                                      </div>
-                                    )}
-                                  </CardContent>
-                                </Card>
-                              ))}
-                          </div>
-                        )}
-                      </TabsContent>
-
-                      <TabsContent value="progress" className="space-y-4 pt-4">
-                        <ClientMetrics
-                          clientId={selectedClient.id}
-                          clientName={selectedClient.name}
-                        />
-                      </TabsContent>
-
-                      <TabsContent value="messaging" className="pt-4">
-                        <MessagingSystem
-                          clientId={selectedClient.id}
-                          clientName={selectedClient.name}
-                          clientEmail={selectedClient.email}
-                        />
-                      </TabsContent>
-                    </Tabs>
-                  </CardContent>
-                </Card>
-              )}
-            </TabsContent>
-
-            {/* Workouts Tab */}
-            <TabsContent value="workouts" className="space-y-4">
-              <div className="rounded-md border border-border">
-                <div className="p-4 bg-background rounded-md">
-                  <div className="font-medium">All Workouts</div>
-                  <div className="text-sm text-muted-foreground">
-                    View and manage all client workouts.
-                  </div>
-                </div>
-                <div className="relative w-full overflow-auto bg-background">
-                  <table className="w-full caption-bottom text-sm">
-                    <thead className="[&_tr]:border-b">
-                      <tr className="border-b border-border transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
-                        <th className="h-12 px-4 text-left align-middle font-medium">
-                          Title
-                        </th>
-                        <th className="h-12 px-4 text-left align-middle font-medium">
-                          Client
-                        </th>
-                        <th className="h-12 px-4 text-left align-middle font-medium">
-                          Due Date
-                        </th>
-                        <th className="h-12 px-4 text-left align-middle font-medium">
-                          Status
-                        </th>
-                        <th className="h-12 px-4 text-left align-middle font-medium">
-                          Actions
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="[&_tr:last-child]:border-0 bg-background">
-                      {loading.workouts ? (
-                        <tr>
-                          <td colSpan={5} className="p-4 text-center">
-                            Loading workouts...
-                          </td>
-                        </tr>
-                      ) : workouts.length === 0 ? (
-                        <tr>
-                          <td colSpan={5} className="p-4 text-center">
-                            No workouts found. Create your first workout to get
-                            started.
-                          </td>
-                        </tr>
-                      ) : (
-                        workouts.map((workout) => {
-                          const client = clients.find(
-                            (c) => c.id === workout.client_id,
-                          );
-                          return (
-                            <tr
-                              key={workout.id}
-                              className="border-b border-border transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted"
-                            >
-                              <td className="p-4 align-middle">
-                                {workout.title}
-                              </td>
-                              <td className="p-4 align-middle">
-                                {client ? (
-                                  <div className="flex items-center space-x-2">
-                                    <Avatar className="h-6 w-6">
-                                      <AvatarImage
-                                        src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${client.email}`}
-                                      />
-                                      <AvatarFallback>
-                                        <User className="h-4 w-4" />
-                                      </AvatarFallback>
-                                    </Avatar>
-                                    <span>{client.name}</span>
-                                  </div>
-                                ) : (
-                                  <span className="text-muted-foreground">
-                                    Unknown client
-                                  </span>
-                                )}
-                              </td>
-                              <td className="p-4 align-middle">
-                                {formatDate(workout.due_date)}
-                              </td>
-                              <td className="p-4 align-middle">
-                                <Badge
-                                  variant={
-                                    workout.status === "completed"
-                                      ? "default"
-                                      : workout.status === "in_progress"
-                                        ? "secondary"
-                                        : "outline"
-                                  }
-                                >
-                                  {workout.status === "completed"
-                                    ? "Completed"
-                                    : workout.status === "in_progress"
-                                      ? "In Progress"
-                                      : "Assigned"}
-                                </Badge>
-                              </td>
-                              <td className="p-4 align-middle">
-                                <div className="flex space-x-2">
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8 w-8 p-0"
-                                  >
-                                    <span className="sr-only">Edit</span>
-                                    <ChevronRight className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </TabsContent>
-
-            {/* Progress Tab */}
-            <TabsContent value="progress" className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Client Progress Overview</CardTitle>
-                    <CardDescription>
-                      Track progress metrics across all clients.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {loading.metrics ? (
-                      <div className="py-8 text-center">
-                        Loading progress data...
-                      </div>
-                    ) : progressMetrics.length === 0 ? (
-                      <div className="py-8 text-center">
-                        <LineChart className="h-12 w-12 text-muted mx-auto mb-4" />
-                        <h3 className="text-lg font-medium">
-                          No progress data yet
-                        </h3>
-                        <p className="text-sm text-muted-foreground">
-                          Progress metrics will appear here once recorded.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="h-[300px] bg-muted/30 dark:bg-muted/10 rounded-md flex items-center justify-center">
-                        <p className="text-muted-foreground">
-                          Progress visualization would appear here
-                        </p>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Compliance Rates</CardTitle>
-                    <CardDescription>
-                      Client workout completion rates.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {loading.clients || loading.workouts ? (
-                      <div className="py-8 text-center">
-                        Loading compliance data...
-                      </div>
-                    ) : clients.length === 0 ? (
-                      <div className="py-8 text-center">
-                        <Users className="h-12 w-12 text-muted mx-auto mb-4" />
-                        <h3 className="text-lg font-medium">No clients yet</h3>
-                        <p className="text-sm text-muted-foreground">
-                          Add clients to see compliance rates.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        {clients
-                          .filter((client) =>
-                            workouts.some((w) => w.client_id === client.id),
-                          )
-                          .sort(
-                            (a, b) =>
-                              getClientComplianceRate(b.id) -
-                              getClientComplianceRate(a.id),
-                          )
-                          .slice(0, 5)
-                          .map((client) => (
-                            <div key={client.id} className="space-y-1">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center space-x-2">
-                                  <Avatar className="h-6 w-6">
-                                    <AvatarImage
-                                      src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${client.email}`}
-                                    />
-                                    <AvatarFallback>
-                                      <User className="h-4 w-4" />
-                                    </AvatarFallback>
-                                  </Avatar>
-                                  <span className="text-sm font-medium">
-                                    {client.name}
-                                  </span>
-                                </div>
-                                <span className="text-sm">
-                                  {getClientComplianceRate(client.id)}%
-                                </span>
-                              </div>
-                              <Progress
-                                value={getClientComplianceRate(client.id)}
-                                className="h-2"
-                              />
-                            </div>
-                          ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-            </TabsContent>
-
-            {/* Portals Tab */}
-            <TabsContent value="portals" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Client Portals</CardTitle>
-                  <CardDescription>
-                    Manage access links for your clients.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {loading.portals ? (
-                    <div className="py-8 text-center">
-                      Loading portal data...
-                    </div>
-                  ) : clientPortals.length === 0 ? (
-                    <div className="text-center py-8">
-                      <LinkIcon className="h-12 w-12 text-muted mx-auto mb-4" />
-                      <h3 className="text-lg font-medium">
-                        No client portals yet
-                      </h3>
-                      <p className="text-sm text-muted-foreground mb-4">
-                        Generate portals for your clients to access their
-                        workouts.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {clientPortals.map((portal) => {
-                        const client = clients.find(
-                          (c) => c.id === portal.client_id,
-                        );
-                        return (
-                          <div
-                            key={portal.id}
-                            className="flex items-center justify-between p-4 border border-border rounded-md bg-card text-card-foreground"
-                          >
-                            <div className="flex items-center space-x-3">
-                              <Avatar>
-                                <AvatarImage
-                                  src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${client?.email}`}
-                                  alt={client?.name}
-                                />
-                                <AvatarFallback>
-                                  <User className="h-4 w-4" />
-                                </AvatarFallback>
-                              </Avatar>
-                              <div>
-                                <div className="font-medium">
-                                  {client?.name || "Unknown Client"}
-                                </div>
-                                <div className="text-sm text-muted-foreground">
-                                  Created: {formatDate(portal.created_at)}
-                                  {portal.last_accessed &&
-                                    ` • Last accessed: ${formatDate(portal.last_accessed)}`}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() =>
-                                  copyPortalLink(portal.url, portal.id)
-                                }
-                              >
-                                {copiedPortalId === portal.id ? (
-                                  <>
-                                    <Check className="h-4 w-4 mr-2" />
-                                    Copied
-                                  </>
-                                ) : (
-                                  <>
-                                    <Copy className="h-4 w-4 mr-2" />
-                                    Copy Link
-                                  </>
-                                )}
-                              </Button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
+      <div className="flex flex-col space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-muted-foreground">
+            Overview of your coaching business and client performance.
+          </p>
         </div>
+
+        {loading.clients || loading.workouts ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-pulse">
+            {[...Array(6)].map((_, i) => (
+              <div
+                key={i}
+                className="h-[120px] bg-muted rounded-lg border border-border"
+              ></div>
+            ))}
+          </div>
+        ) : (
+          <>
+            {/* Analytics Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+              <AnalyticsCard
+                title="Total Clients"
+                value={dashboardData.totalClients}
+                icon={<Users className="h-4 w-4 text-muted-foreground" />}
+                description={`${dashboardData.activeClients} active clients`}
+                trend={
+                  dashboardData.trends.clients !== null
+                    ? {
+                        value: dashboardData.trends.clients,
+                        isPositive: dashboardData.trends.clients >= 0,
+                      }
+                    : undefined
+                }
+              />
+              <AnalyticsCard
+                title="Total Workouts"
+                value={dashboardData.totalWorkouts}
+                icon={<Dumbbell className="h-4 w-4 text-muted-foreground" />}
+                description="Assigned to clients"
+                trend={
+                  dashboardData.trends.workouts !== null
+                    ? {
+                        value: dashboardData.trends.workouts,
+                        isPositive: dashboardData.trends.workouts >= 0,
+                      }
+                    : undefined
+                }
+              />
+              <AnalyticsCard
+                title="Completed Workouts"
+                value={dashboardData.completedWorkouts}
+                icon={
+                  <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+                }
+                description="Successfully completed"
+                trend={
+                  dashboardData.trends.completedWorkouts !== null
+                    ? {
+                        value: dashboardData.trends.completedWorkouts,
+                        isPositive: dashboardData.trends.completedWorkouts >= 0,
+                      }
+                    : undefined
+                }
+              />
+              <AnalyticsCard
+                title="Compliance Rate"
+                value={`${dashboardData.complianceRate}%`}
+                icon={<TrendingUp className="h-4 w-4 text-muted-foreground" />}
+                description="Overall completion rate"
+                trend={
+                  dashboardData.trends.complianceRate !== null
+                    ? {
+                        value: dashboardData.trends.complianceRate,
+                        isPositive: dashboardData.trends.complianceRate >= 0,
+                      }
+                    : undefined
+                }
+              />
+              <AnalyticsCard
+                title="Upcoming Workouts"
+                value={dashboardData.upcomingWorkouts}
+                icon={<Calendar className="h-4 w-4 text-muted-foreground" />}
+                description="Due in the next 7 days"
+              />
+              <AnalyticsCard
+                title="Avg. Completion Time"
+                value={`${dashboardData.avgCompletionTime || "0"} days`}
+                icon={<Clock className="h-4 w-4 text-muted-foreground" />}
+                description="From assignment to completion"
+                trend={
+                  dashboardData.trends.avgCompletionTime !== null
+                    ? {
+                        value: dashboardData.trends.avgCompletionTime,
+                        isPositive: dashboardData.trends.avgCompletionTime <= 0,
+                      }
+                    : undefined
+                }
+              />
+            </div>
+
+            {/* Client Activity Chart */}
+            <ClientActivityChart data={chartData.clientActivity} />
+
+            {/* Charts Row */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Compliance Rate Chart */}
+              <ComplianceRateChart data={chartData.complianceRate} />
+
+              {/* Client Progress Chart */}
+              <ClientProgressChart data={chartData.clientProgress} />
+            </div>
+
+            {/* Bottom Row */}
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+              {/* Workout Distribution Chart */}
+              <WorkoutDistributionChart
+                data={chartData.workoutDistribution}
+                className="lg:col-span-2"
+              />
+
+              {/* Top Clients Table */}
+              <TopClientsTable clients={topClients} className="lg:col-span-3" />
+            </div>
+          </>
+        )}
       </div>
       <Toaster />
     </DashboardLayout>

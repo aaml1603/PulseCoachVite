@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Bell, X, Check, User } from "lucide-react";
+import { Bell, X, Check, User, Trash2 } from "lucide-react";
 import { supabase } from "../../../supabase/supabase";
 import { useAuth } from "../../../supabase/auth";
 import {
@@ -7,6 +7,17 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -134,6 +145,25 @@ const NotificationCenter = () => {
     setUnreadCount(0);
   };
 
+  // Clear all notifications
+  const clearAllNotifications = async () => {
+    if (notifications.length === 0) return;
+
+    const { error } = await supabase
+      .from("notifications")
+      .delete()
+      .eq("user_id", user?.id);
+
+    if (error) {
+      console.error("Error clearing all notifications:", error);
+      return;
+    }
+
+    setNotifications([]);
+    setUnreadCount(0);
+    setOpen(false);
+  };
+
   // Format date
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -172,16 +202,52 @@ const NotificationCenter = () => {
       <PopoverContent className="w-80 p-0" align="end">
         <div className="flex items-center justify-between p-4 border-b">
           <h3 className="font-semibold">Notifications</h3>
-          {unreadCount > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-xs h-8"
-              onClick={markAllAsRead}
-            >
-              Mark all as read
-            </Button>
-          )}
+          <div className="flex gap-2">
+            {unreadCount > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs h-8"
+                onClick={markAllAsRead}
+              >
+                Mark all as read
+              </Button>
+            )}
+            {notifications.length > 0 && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs h-8 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-1" />
+                    Clear all
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      Clear all notifications?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This action cannot be undone. All notifications will be
+                      permanently deleted.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={clearAllNotifications}
+                      className="bg-red-500 hover:bg-red-600"
+                    >
+                      Clear all
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+          </div>
         </div>
         <ScrollArea className="h-[300px]">
           {notifications.length === 0 ? (
@@ -193,7 +259,7 @@ const NotificationCenter = () => {
               {notifications.map((notification) => (
                 <div
                   key={notification.id}
-                  className={`p-4 ${!notification.read ? "bg-blue-50" : ""}`}
+                  className={`p-4 ${!notification.read ? "bg-blue-50 dark:bg-blue-950/50" : ""}`}
                 >
                   <div className="flex justify-between items-start">
                     <div className="flex-1">

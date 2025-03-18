@@ -46,6 +46,17 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
@@ -60,6 +71,7 @@ import {
   MoveUp,
   MoveDown,
   Copy,
+  AlertTriangle,
 } from "lucide-react";
 import ExerciseForm, { ExerciseFormValues } from "./ExerciseForm";
 
@@ -101,6 +113,8 @@ export default function WorkoutBuilder() {
   const [isLoading, setIsLoading] = useState(false);
   const [savedWorkouts, setSavedWorkouts] = useState<any[]>([]);
   const [selectedWorkout, setSelectedWorkout] = useState<string | null>(null);
+  const [workoutToDelete, setWorkoutToDelete] = useState<string | null>(null);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
   const form = useForm<WorkoutFormValues>({
     resolver: zodResolver(workoutSchema),
@@ -225,9 +239,13 @@ export default function WorkoutBuilder() {
 
       // Insert exercises
       const exercisesWithWorkoutId = exercises.map((exercise, index) => ({
-        ...exercise,
-        workout_id: workoutId,
+        name: exercise.name,
+        sets: exercise.sets,
+        reps: exercise.reps,
+        rest_seconds: exercise.rest_seconds,
+        notes: exercise.notes,
         order_index: index,
+        workout_id: workoutId,
       }));
 
       const { error: exercisesError } = await supabase
@@ -236,20 +254,7 @@ export default function WorkoutBuilder() {
 
       if (exercisesError) throw exercisesError;
 
-      // Create notification for client
-      const client = clients.find((c) => c.id === data.client_id);
-      if (client) {
-        await supabase.from("notifications").insert([
-          {
-            user_id: client.id,
-            client_id: client.id,
-            title: "New Workout Assigned",
-            message: `A new workout "${data.title}" has been assigned to you.`,
-            type: "workout_assigned",
-            read: false,
-          },
-        ]);
-      }
+      // No longer creating notification for client when workout is assigned
 
       toast({
         title: "Workout created",
@@ -276,6 +281,52 @@ export default function WorkoutBuilder() {
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const deleteWorkout = async (workoutId: string) => {
+    try {
+      setIsLoading(true);
+
+      // First delete all exercises associated with this workout
+      const { error: exercisesError } = await supabase
+        .from("exercises")
+        .delete()
+        .eq("workout_id", workoutId);
+
+      if (exercisesError) throw exercisesError;
+
+      // Then delete the workout itself
+      const { error: workoutError } = await supabase
+        .from("workouts")
+        .delete()
+        .eq("id", workoutId);
+
+      if (workoutError) throw workoutError;
+
+      // Refresh the workouts list
+      const { data: refreshedWorkouts } = await supabase
+        .from("workouts")
+        .select("id, title, client_id, status")
+        .order("created_at", { ascending: false });
+
+      setSavedWorkouts(refreshedWorkouts || []);
+
+      toast({
+        title: "Workout deleted",
+        description: "The workout has been permanently removed",
+      });
+    } catch (error) {
+      console.error("Error deleting workout:", error);
+      toast({
+        title: "Error",
+        description: "Failed to delete workout",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+      setWorkoutToDelete(null);
+      setIsDeleteDialogOpen(false);
     }
   };
 
@@ -332,26 +383,87 @@ export default function WorkoutBuilder() {
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">Workout Builder</h1>
 
-        <Select
-          value={selectedWorkout || ""}
-          onValueChange={(value) => {
-            if (value) {
-              setSelectedWorkout(value);
-              loadWorkout(value);
-            }
-          }}
-        >
-          <SelectTrigger className="w-[250px]">
-            <SelectValue placeholder="Load saved workout" />
-          </SelectTrigger>
-          <SelectContent>
-            {savedWorkouts.map((workout) => (
-              <SelectItem key={workout.id} value={workout.id}>
-                {workout.title}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex gap-2">
+          <AlertDialog
+            open={isDeleteDialogOpen}
+            onOpenChange={setIsDeleteDialogOpen}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle className="flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5 text-destructive" />
+                  Confirm Deletion
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  Are you sure you want to delete this workout? This action
+                  cannot be undone and will remove all exercises associated with
+                  this workout.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={isLoading}>
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() =>
+                    workoutToDelete && deleteWorkout(workoutToDelete)
+                  }
+                  disabled={isLoading}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  {isLoading ? "Deleting..." : "Delete Workout"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <Select
+            value={selectedWorkout || ""}
+            onValueChange={(value) => {
+              if (value) {
+                setSelectedWorkout(value);
+                loadWorkout(value);
+              }
+            }}
+          >
+            <SelectTrigger className="w-[250px]">
+              <SelectValue placeholder="Load saved workout" />
+            </SelectTrigger>
+            <SelectContent>
+              {savedWorkouts.map((workout) => (
+                <SelectItem key={workout.id} value={workout.id}>
+                  <div className="flex items-center justify-between w-full">
+                    <span>{workout.title}</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
+            value=""
+            onValueChange={(value) => {
+              if (value) {
+                setWorkoutToDelete(value);
+                setIsDeleteDialogOpen(true);
+              }
+            }}
+          >
+            <SelectTrigger className="w-[250px] border-destructive">
+              <SelectValue placeholder="Delete workout" />
+            </SelectTrigger>
+            <SelectContent>
+              {savedWorkouts.map((workout) => (
+                <SelectItem key={workout.id} value={workout.id}>
+                  <div className="flex items-center gap-2">
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                    <span>{workout.title}</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

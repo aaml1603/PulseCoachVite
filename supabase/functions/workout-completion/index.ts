@@ -81,8 +81,8 @@ Deno.serve(async (req) => {
         client_id: clientId,
         title: "Workout Completed",
         message: feedback
-          ? `${client.name} completed their workout and left feedback: "${feedback}"`
-          : `${client.name} completed their workout`,
+          ? `${client.name} completed the workout: ${workout.name} and left feedback: "${feedback}"`
+          : `${client.name} completed the workout: ${workout.name}`,
         type: "workout_completion",
         read: false,
       });

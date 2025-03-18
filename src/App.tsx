@@ -11,6 +11,13 @@ import ClientMessaging from "./components/pages/client-messaging";
 import Messaging from "./components/pages/messaging";
 import WorkoutBuilder from "./components/pages/workout-builder";
 import ProfilePage from "./components/pages/profile";
+import ClientsPage from "./components/pages/clients";
+import AboutPage from "./components/pages/about";
+import PrivacyPolicy from "./components/pages/privacy";
+import TermsOfService from "./components/pages/terms";
+import CookiesPolicy from "./components/pages/cookies";
+import HelpCenter from "./components/pages/help-center";
+import Tutorials from "./components/pages/tutorials";
 import { AuthProvider, useAuth } from "../supabase/auth";
 import { Toaster } from "./components/ui/toaster";
 import { ThemeProvider } from "./components/theme-provider";
@@ -68,12 +75,26 @@ function AppRoutes() {
             </PrivateRoute>
           }
         />
+        <Route
+          path="/clients"
+          element={
+            <PrivateRoute>
+              <ClientsPage />
+            </PrivateRoute>
+          }
+        />
         <Route path="/client-portal/:clientId" element={<ClientPortal />} />
         <Route
           path="/client-messaging/:clientId"
           element={<ClientMessaging />}
         />
         <Route path="/success" element={<Success />} />
+        <Route path="/about" element={<AboutPage />} />
+        <Route path="/privacy" element={<PrivacyPolicy />} />
+        <Route path="/terms" element={<TermsOfService />} />
+        <Route path="/cookies" element={<CookiesPolicy />} />
+        <Route path="/help-center" element={<HelpCenter />} />
+        <Route path="/tutorials" element={<Tutorials />} />
       </Routes>
       {import.meta.env.VITE_TEMPO === "true" && useRoutes(routes)}
     </>

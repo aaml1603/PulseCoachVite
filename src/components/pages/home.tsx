@@ -910,6 +910,14 @@ export default function LandingPage() {
               <ul className="space-y-3">
                 <li>
                   <Link
+                    to="/about"
+                    className="text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400"
+                  >
+                    About Us
+                  </Link>
+                </li>
+                <li>
+                  <Link
                     to="#"
                     className="text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400"
                   >
@@ -924,22 +932,6 @@ export default function LandingPage() {
                     Pricing
                   </Link>
                 </li>
-                <li>
-                  <Link
-                    to="#"
-                    className="text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400"
-                  >
-                    Client Portal
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="#"
-                    className="text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400"
-                  >
-                    Workout Builder
-                  </Link>
-                </li>
               </ul>
             </div>
 
@@ -950,7 +942,7 @@ export default function LandingPage() {
               <ul className="space-y-3">
                 <li>
                   <Link
-                    to="#"
+                    to="/help-center"
                     className="text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400"
                   >
                     Help Center
@@ -958,26 +950,10 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <Link
-                    to="#"
+                    to="/tutorials"
                     className="text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400"
                   >
                     Tutorials
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="#"
-                    className="text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400"
-                  >
-                    Fitness Blog
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="#"
-                    className="text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400"
-                  >
-                    Coach Community
                   </Link>
                 </li>
               </ul>
@@ -985,28 +961,12 @@ export default function LandingPage() {
 
             <div>
               <h3 className="font-medium text-lg mb-4 text-foreground">
-                Company
+                Legal
               </h3>
               <ul className="space-y-3">
                 <li>
                   <Link
-                    to="#"
-                    className="text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400"
-                  >
-                    About Us
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="#"
-                    className="text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400"
-                  >
-                    Success Stories
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="#"
+                    to="/privacy"
                     className="text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400"
                   >
                     Privacy Policy
@@ -1014,7 +974,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <Link
-                    to="#"
+                    to="/terms"
                     className="text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400"
                   >
                     Terms of Service

@@ -35,7 +35,13 @@ const defaultNavItems: NavItem[] = [
     href: "/dashboard",
     isActive: true,
   },
+  { icon: <Users size={18} />, label: "Clients", href: "/clients" },
   { icon: <MessageSquare size={18} />, label: "Messages", href: "/messaging" },
+  {
+    icon: <Dumbbell size={18} />,
+    label: "Workout Builder",
+    href: "/workout-builder",
+  },
 ];
 
 const defaultBottomItems: NavItem[] = [
