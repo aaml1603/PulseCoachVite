@@ -34,5 +34,12 @@ export default defineConfig({
   server: {
     // @ts-ignore
     allowedHosts: true,
+    proxy: {
+      "/api": {
+        target: "https://szfalmcyhlpsftmwtzzr.supabase.co",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ""),
+      },
+    },
   },
 });
